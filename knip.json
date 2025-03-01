@@ -1,0 +1,29 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "entry": ["app/**/*.{ts,tsx}", "pages/**/*.{ts,tsx}", "components/**/*.{ts,tsx}"],
+  "project": ["**/*.{ts,tsx}"],
+  "ignore": [
+    "node_modules/**",
+    ".next/**",
+    "out/**",
+    "public/**",
+    "app/api/**",
+    "middleware.ts",
+    "v0-user-next.config.js",
+    "v0-user-next.config.mjs"
+  ],
+  "ignoreDependencies": [
+    "@types/*",
+    "autoprefixer",
+    "postcss",
+    "postcss-load-config",
+    "tailwindcss",
+    "@mapbox/*",
+    "mapbox-gl",
+    "react-map-gl",
+    "@turf/turf",
+    "zod",
+    "@hookform/resolvers"
+  ],
+  "ignoreBinaries": ["next"]
+} 
