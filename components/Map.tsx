@@ -5,10 +5,11 @@ import { Map, NavigationControl, GeolocateControl } from 'react-map-gl';
 import type { MapRef } from 'react-map-gl';
 import type { Feature, LineString } from 'geojson';
 import mapboxgl, { MapboxEvent } from 'mapbox-gl';
-import { CarFront, PersonStanding, Bike, Clock, Search } from 'lucide-react';
+import { CarFront, PersonStanding, Bike, Clock, Search, Navigation2, X } from 'lucide-react';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { saveRecentSearch } from '../utils/supabase-client'
+import { saveRecentSearch, getRecentSearches } from '../utils/supabase-client'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useSearchParams } from 'next/navigation';
 
 // Debug logging
 console.log('Environment variables:', {
@@ -46,6 +47,11 @@ interface SearchResult {
   center: [number, number];
 }
 
+interface SelectedPlace {
+  coordinates: [number, number];
+  name: string;
+}
+
 const MapComponent = ({ selectedLocation }: MapComponentProps = {}) => {
   const mapRef = useRef<MapRef>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
@@ -67,9 +73,14 @@ const MapComponent = ({ selectedLocation }: MapComponentProps = {}) => {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<any[]>([]);
+  const [isFocused, setIsFocused] = useState(false);
+  const [noResults, setNoResults] = useState(false);
 
   const supabase = createClientComponentClient();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  
+  const searchParams = useSearchParams();
   
   // Add this useEffect for auth state
   useEffect(() => {
@@ -88,6 +99,18 @@ const MapComponent = ({ selectedLocation }: MapComponentProps = {}) => {
 
     return () => subscription.unsubscribe()
   }, [supabase])
+
+  // Add this useEffect to fetch recent searches
+  useEffect(() => {
+    const fetchRecentSearches = async () => {
+      if (isAuthenticated) {
+        const searches = await getRecentSearches();
+        setRecentSearches(searches);
+      }
+    };
+
+    fetchRecentSearches();
+  }, [isAuthenticated]);
 
   // Function to format duration
   const formatDuration = (minutes: number) => {
@@ -227,6 +250,7 @@ const MapComponent = ({ selectedLocation }: MapComponentProps = {}) => {
     const searchPlaces = async () => {
       if (query.length < 2) {
         setSearchResults([]);
+        setNoResults(false);
         return;
       }
 
@@ -238,15 +262,18 @@ const MapComponent = ({ selectedLocation }: MapComponentProps = {}) => {
           )}.json?access_token=${MAPBOX_TOKEN}&country=IL&limit=5`
         );
         const data = await response.json();
-        setSearchResults(data.features.map((feature: any) => ({
+        const results = data.features.map((feature: any) => ({
           id: feature.id,
           place_name: feature.place_name,
           center: feature.center
-        })));
+        }));
+        setSearchResults(results);
+        setNoResults(results.length === 0);
         setShowResults(true);
       } catch (error) {
         console.error('Error fetching places:', error);
         setSearchResults([]);
+        setNoResults(true);
       } finally {
         setIsLoading(false);
       }
@@ -256,6 +283,48 @@ const MapComponent = ({ selectedLocation }: MapComponentProps = {}) => {
     return () => clearTimeout(debounceTimer);
   }, [query]);
 
+  const [selectedPlace, setSelectedPlace] = useState<SelectedPlace | null>(null);
+  const [showDirectionsModal, setShowDirectionsModal] = useState(false);
+  const [startLocationQuery, setStartLocationQuery] = useState('');
+  const [startLocationResults, setStartLocationResults] = useState<SearchResult[]>([]);
+  const [isStartLocationLoading, setIsStartLocationLoading] = useState(false);
+
+  const handleGetDirections = async (start: SearchResult) => {
+    if (selectedPlace) {
+      setOrigin(start.center);
+      setDestination(selectedPlace.coordinates);
+      setShowDirectionsModal(false);
+      setSelectedPlace(null);
+    }
+  };
+
+  const searchStartLocation = async (query: string) => {
+    if (query.length < 2) {
+      setStartLocationResults([]);
+      return;
+    }
+
+    setIsStartLocationLoading(true);
+    try {
+      const response = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
+          query
+        )}.json?access_token=${MAPBOX_TOKEN}&country=IL&limit=5`
+      );
+      const data = await response.json();
+      setStartLocationResults(data.features.map((feature: any) => ({
+        id: feature.id,
+        place_name: feature.place_name,
+        center: feature.center
+      })));
+    } catch (error) {
+      console.error('Error fetching start locations:', error);
+      setStartLocationResults([]);
+    } finally {
+      setIsStartLocationLoading(false);
+    }
+  };
+
   const handleSelectPlace = async (result: SearchResult) => {
     setViewState({
       longitude: result.center[0],
@@ -264,8 +333,14 @@ const MapComponent = ({ selectedLocation }: MapComponentProps = {}) => {
     });
     setQuery(result.place_name);
     setShowResults(false);
+    setIsFocused(false);
     
-    // Only save search if user is authenticated
+    // Set the selected place for the popup
+    setSelectedPlace({
+      coordinates: result.center,
+      name: result.place_name
+    });
+    
     if (isAuthenticated && result.center && result.place_name) {
       try {
         await saveRecentSearch(
@@ -273,11 +348,41 @@ const MapComponent = ({ selectedLocation }: MapComponentProps = {}) => {
           result.center,
           result.place_name
         );
+        const searches = await getRecentSearches();
+        setRecentSearches(searches);
       } catch (error) {
         console.error('Error saving search:', error);
       }
     }
   };
+
+  useEffect(() => {
+    const debounceTimer = setTimeout(() => {
+      if (startLocationQuery) {
+        searchStartLocation(startLocationQuery);
+      }
+    }, 300);
+
+    return () => clearTimeout(debounceTimer);
+  }, [startLocationQuery]);
+
+  useEffect(() => {
+    const destinationCoords = searchParams.get('destination');
+    const placeName = searchParams.get('place');
+
+    if (destinationCoords && placeName) {
+      const coords = destinationCoords.replace(/[()]/g, '').split(',').map(Number) as [number, number];
+      setSelectedPlace({
+        coordinates: coords,
+        name: decodeURIComponent(placeName)
+      });
+      setViewState({
+        longitude: coords[0],
+        latitude: coords[1],
+        zoom: 14
+      });
+    }
+  }, [searchParams]);
 
   return (
     <div className="h-screen w-full relative">
@@ -292,33 +397,144 @@ const MapComponent = ({ selectedLocation }: MapComponentProps = {}) => {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onFocus={() => setIsFocused(true)}
               placeholder="Search for a place..."
               className="w-full px-4 py-2 pl-10 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
           </div>
 
-          {showResults && searchResults.length > 0 && (
+          {/* Show recent searches or search results */}
+          {(showResults || (isFocused && query.length === 0 && isAuthenticated)) && (
             <div className="absolute mt-1 w-full bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 max-h-60 overflow-y-auto">
-              {searchResults.map((result) => (
-                <button
-                  key={result.id}
-                  onClick={() => handleSelectPlace(result)}
-                  className="w-full px-4 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none"
-                >
-                  {result.place_name}
-                </button>
-              ))}
+              {query.length === 0 && isAuthenticated && recentSearches.length > 0 && (
+                <div className="p-2 text-sm text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                  Recent Searches
+                </div>
+              )}
+              
+              {query.length === 0 && isAuthenticated ? (
+                recentSearches.map((search) => (
+                  <button
+                    key={search.id}
+                    onClick={() => handleSelectPlace({
+                      id: search.id,
+                      place_name: search.place_name,
+                      center: JSON.parse(`[${search.coordinates.replace(/[()]/g, '')}]`)
+                    })}
+                    className="w-full px-4 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none flex items-center"
+                  >
+                    <Clock className="h-4 w-4 mr-2 text-gray-400" />
+                    <span>{search.place_name}</span>
+                  </button>
+                ))
+              ) : (
+                searchResults.map((result) => (
+                  <button
+                    key={result.id}
+                    onClick={() => handleSelectPlace(result)}
+                    className="w-full px-4 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none"
+                  >
+                    {result.place_name}
+                  </button>
+                ))
+              )}
             </div>
           )}
 
+          {/* Loading state */}
           {isLoading && (
             <div className="absolute mt-1 w-full bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-4 text-center">
               Searching...
             </div>
           )}
+
+          {/* No results message */}
+          {noResults && query.length >= 2 && !isLoading && (
+            <div className="absolute mt-1 w-full bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-4 text-center text-gray-500 dark:text-gray-400">
+              No results found for "{query}"
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Add the selected place popup */}
+      {selectedPlace && (
+        <div className="absolute bottom-40 left-1/2 transform -translate-x-1/2 bg-white dark:bg-gray-900 p-4 rounded-lg shadow-lg z-[999] w-full max-w-md mx-4">
+          <div className="flex justify-between items-start mb-2">
+            <h3 className="font-bold text-lg">{selectedPlace.name}</h3>
+            <button
+              onClick={() => setSelectedPlace(null)}
+              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          <button
+            onClick={() => setShowDirectionsModal(true)}
+            className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2 px-4 rounded-lg mt-2"
+          >
+            <Navigation2 size={20} />
+            Get Directions
+          </button>
+        </div>
+      )}
+
+      {/* Add the directions modal */}
+      {showDirectionsModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[1000] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-lg w-full max-w-md">
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+              <h3 className="font-bold text-lg">Get Directions</h3>
+              <button
+                onClick={() => setShowDirectionsModal(false)}
+                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-4">
+              <div className="mb-4">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">To: {selectedPlace?.name}</p>
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
+                    Enter starting location:
+                  </label>
+                  <input
+                    type="text"
+                    value={startLocationQuery}
+                    onChange={(e) => setStartLocationQuery(e.target.value)}
+                    placeholder="Type to search..."
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                
+                {isStartLocationLoading ? (
+                  <div className="mt-2 p-2 text-center text-gray-500">
+                    Searching...
+                  </div>
+                ) : startLocationResults.length > 0 ? (
+                  <div className="mt-2 max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg">
+                    {startLocationResults.map((result) => (
+                      <button
+                        key={result.id}
+                        onClick={() => handleGetDirections(result)}
+                        className="w-full px-4 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none"
+                      >
+                        {result.place_name}
+                      </button>
+                    ))}
+                  </div>
+                ) : startLocationQuery.length >= 2 ? (
+                  <div className="mt-2 p-2 text-center text-gray-500">
+                    No results found
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Map
         ref={mapRef}
