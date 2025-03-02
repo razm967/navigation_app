@@ -1,5 +1,5 @@
-import MapComponent from '../components/Map';
+import { redirect } from 'next/navigation';
 
 export default function Home() {
-  return <MapComponent />;
+  redirect('/map');
 } 

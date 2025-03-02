@@ -1,7 +1,7 @@
 'use client'
 
 import Link from "next/link"
-import { Menu, X } from "lucide-react"
+import { Menu, X, MapPin, User } from "lucide-react"
 import { useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
@@ -23,7 +23,18 @@ const Navigation = () => {
       const { data: { user } } = await supabase.auth.getUser()
       setIsAuthenticated(!!user)
     }
+    
+    // Initial check
     checkAuth()
+
+    // Subscribe to auth state changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthenticated(!!session?.user)
+    })
+
+    return () => subscription.unsubscribe()
   }, [supabase])
 
   useEffect(() => {
@@ -44,29 +55,40 @@ const Navigation = () => {
 
   const menuItems: MenuItem[] = [
     { href: '/map', label: 'Map' },
-    { href: '/routes', label: 'Routes' },
     { href: '/search', label: 'Search' },
-    ...(isAuthenticated ? [{ href: '/favorites', label: 'Saved Places' }] : []),
-    { href: '/settings', label: 'Settings', isButton: true }
+    ...(isAuthenticated 
+      ? [
+          { href: '/favorites', label: 'Saved Places' },
+          { href: '/settings', label: 'Settings' }
+        ] 
+      : [
+          { href: '/auth', label: 'Sign In', isButton: true }
+        ]
+    )
   ]
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut()
-    setIsAuthenticated(false)
-    window.location.href = '/'
+    try {
+      await supabase.auth.signOut()
+      setIsAuthenticated(false)
+      // Use router.push instead of window.location for better navigation
+      window.location.href = '/map'
+    } catch (error) {
+      console.error('Error signing out:', error)
+    }
   }
 
   return (
     <nav className="sticky top-0 z-[100] w-full">
       <div className="glass-effect px-4 py-3">
-        <div className="container mx-auto relative">
+        <div className="flex justify-between items-center">
           <Link href="/" className="text-2xl font-bold gradient-text">
             NaviGo
           </Link>
           
-          {/* Single Hamburger/Close Menu Button - Fixed to right side */}
+          {/* Single Hamburger/Close Menu Button */}
           <button 
-            className="fixed right-4 top-3 text-gray-700 dark:text-gray-200 hover:text-emerald-600 dark:hover:text-emerald-400 z-[120]"
+            className="text-gray-700 dark:text-gray-200 hover:text-emerald-600 dark:hover:text-emerald-400 z-[120]"
             onClick={(e) => {
               e.stopPropagation()
               setIsMobileMenuOpen(!isMobileMenuOpen)
@@ -92,7 +114,7 @@ const Navigation = () => {
                   initial={{ x: '100%' }}
                   animate={{ x: 0 }}
                   exit={{ x: '100%' }}
-                  transition={{ type: "tween", duration: 0}} //dont change this duration
+                  transition={{ type: "tween", duration: 0 }}
                   className="fixed top-0 right-0 h-screen w-64 bg-white dark:bg-gray-900 z-[110]"
                   style={{ height: '100dvh' }}
                 >

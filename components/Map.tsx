@@ -5,8 +5,10 @@ import { Map, NavigationControl, GeolocateControl } from 'react-map-gl';
 import type { MapRef } from 'react-map-gl';
 import type { Feature, LineString } from 'geojson';
 import mapboxgl, { MapboxEvent } from 'mapbox-gl';
-import { CarFront, PersonStanding, Bike, Clock } from 'lucide-react';
+import { CarFront, PersonStanding, Bike, Clock, Search } from 'lucide-react';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import { saveRecentSearch } from '../utils/supabase-client'
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 // Debug logging
 console.log('Environment variables:', {
@@ -32,14 +34,21 @@ interface ViewState {
 }
 
 interface MapComponentProps {
-  selectedLocation: {
+  selectedLocation?: {
     coordinates: [number, number];
     placeName: string;
   } | null;
 }
 
-const MapComponent = ({ selectedLocation }: MapComponentProps) => {
+interface SearchResult {
+  id: string;
+  place_name: string;
+  center: [number, number];
+}
+
+const MapComponent = ({ selectedLocation }: MapComponentProps = {}) => {
   const mapRef = useRef<MapRef>(null);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
   const [viewState, setViewState] = useState<ViewState>({
     longitude: 34.7818,  // Israel coordinates
     latitude: 32.0853,
@@ -52,6 +61,33 @@ const MapComponent = ({ selectedLocation }: MapComponentProps) => {
   const [routeGeometry, setRouteGeometry] = useState<Feature<LineString> | null>(null);
   const [transportMode, setTransportMode] = useState<TransportMode>('driving');
   const [routeInfo, setRouteInfo] = useState<{ duration: number; distance: number } | null>(null);
+
+  // Search state
+  const [query, setQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [showResults, setShowResults] = useState(false);
+
+  const supabase = createClientComponentClient();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  
+  // Add this useEffect for auth state
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      setIsAuthenticated(!!user)
+    }
+    
+    checkAuth()
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthenticated(!!session?.user)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [supabase])
 
   // Function to format duration
   const formatDuration = (minutes: number) => {
@@ -176,8 +212,114 @@ const MapComponent = ({ selectedLocation }: MapComponentProps) => {
     }
   }, [selectedLocation]);
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setShowResults(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const searchPlaces = async () => {
+      if (query.length < 2) {
+        setSearchResults([]);
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        const response = await fetch(
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
+            query
+          )}.json?access_token=${MAPBOX_TOKEN}&country=IL&limit=5`
+        );
+        const data = await response.json();
+        setSearchResults(data.features.map((feature: any) => ({
+          id: feature.id,
+          place_name: feature.place_name,
+          center: feature.center
+        })));
+        setShowResults(true);
+      } catch (error) {
+        console.error('Error fetching places:', error);
+        setSearchResults([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    const debounceTimer = setTimeout(searchPlaces, 300);
+    return () => clearTimeout(debounceTimer);
+  }, [query]);
+
+  const handleSelectPlace = async (result: SearchResult) => {
+    setViewState({
+      longitude: result.center[0],
+      latitude: result.center[1],
+      zoom: 14
+    });
+    setQuery(result.place_name);
+    setShowResults(false);
+    
+    // Only save search if user is authenticated
+    if (isAuthenticated && result.center && result.place_name) {
+      try {
+        await saveRecentSearch(
+          result.place_name,
+          result.center,
+          result.place_name
+        );
+      } catch (error) {
+        console.error('Error saving search:', error);
+      }
+    }
+  };
+
   return (
     <div className="h-screen w-full relative">
+      {/* Search Bar */}
+      <div 
+        ref={searchContainerRef} 
+        className="absolute top-4 left-1/2 transform -translate-x-1/2 w-full max-w-md px-4 z-[999]"
+      >
+        <div className="relative">
+          <div className="relative">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search for a place..."
+              className="w-full px-4 py-2 pl-10 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+          </div>
+
+          {showResults && searchResults.length > 0 && (
+            <div className="absolute mt-1 w-full bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 max-h-60 overflow-y-auto">
+              {searchResults.map((result) => (
+                <button
+                  key={result.id}
+                  onClick={() => handleSelectPlace(result)}
+                  className="w-full px-4 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none"
+                >
+                  {result.place_name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {isLoading && (
+            <div className="absolute mt-1 w-full bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-4 text-center">
+              Searching...
+            </div>
+          )}
+        </div>
+      </div>
+
       <Map
         ref={mapRef}
         {...viewState}
@@ -253,7 +395,7 @@ const MapComponent = ({ selectedLocation }: MapComponentProps) => {
 
       {/* Route information */}
       {routeInfo && (
-        <div className="absolute top-4 left-4 bg-white dark:bg-gray-900 p-4 rounded-lg shadow-lg">
+        <div className="absolute top-20 left-4 bg-white dark:bg-gray-900 p-4 rounded-lg shadow-lg">
           <h3 className="font-bold mb-2">Route Info:</h3>
           <p>Duration: {formatDuration(routeInfo.duration)}</p>
           <p>Distance: {formatDistance(routeInfo.distance)}</p>
@@ -262,7 +404,7 @@ const MapComponent = ({ selectedLocation }: MapComponentProps) => {
 
       {/* Instructions */}
       {!origin && (
-        <div className="absolute top-4 left-4 bg-white dark:bg-gray-900 p-4 rounded-lg shadow-lg">
+        <div className="absolute top-20 left-4 bg-white dark:bg-gray-900 p-4 rounded-lg shadow-lg">
           <h3 className="font-bold mb-2">How to use:</h3>
           <ol className="list-decimal pl-4">
             <li>Click on the map to set starting point (green marker)</li>
