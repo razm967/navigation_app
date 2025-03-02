@@ -43,7 +43,6 @@ const Navigation = () => {
   }, [isMobileMenuOpen])
 
   const menuItems: MenuItem[] = [
-    { href: '/', label: 'Home' },
     { href: '/map', label: 'Map' },
     { href: '/routes', label: 'Routes' },
     { href: '/search', label: 'Search' },
@@ -60,41 +59,14 @@ const Navigation = () => {
   return (
     <nav className="sticky top-0 z-[100] w-full">
       <div className="glass-effect px-4 py-3">
-        <div className="container mx-auto flex items-center justify-between">
+        <div className="container mx-auto relative">
           <Link href="/" className="text-2xl font-bold gradient-text">
             NaviGo
           </Link>
           
-          {/* Desktop Menu */}
-          <ul className="hidden md:flex items-center space-x-8">
-            {menuItems.map((item) => (
-              <li key={item.href}>
-                <Link 
-                  href={item.href} 
-                  className={item.isButton 
-                    ? "px-4 py-2 rounded-full bg-emerald-600 text-white hover:bg-emerald-700 transition-colors duration-200"
-                    : "text-gray-700 dark:text-gray-200 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors duration-200"
-                  }
-                >
-                  {item.label}
-                </Link>
-              </li>
-            ))}
-            {isAuthenticated && (
-              <li>
-                <button
-                  onClick={handleSignOut}
-                  className="text-gray-700 dark:text-gray-200 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors duration-200"
-                >
-                  Sign Out
-                </button>
-              </li>
-            )}
-          </ul>
-
-          {/* Mobile Menu Button */}
+          {/* Single Hamburger/Close Menu Button - Fixed to right side */}
           <button 
-            className="md:hidden text-gray-700 dark:text-gray-200 hover:text-emerald-600 dark:hover:text-emerald-400"
+            className="fixed right-4 top-3 text-gray-700 dark:text-gray-200 hover:text-emerald-600 dark:hover:text-emerald-400 z-[120]"
             onClick={(e) => {
               e.stopPropagation()
               setIsMobileMenuOpen(!isMobileMenuOpen)
@@ -103,7 +75,7 @@ const Navigation = () => {
             {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
 
-          {/* Mobile Menu */}
+          {/* Menu Panel */}
           <AnimatePresence>
             {isMobileMenuOpen && (
               <>
@@ -120,18 +92,10 @@ const Navigation = () => {
                   initial={{ x: '100%' }}
                   animate={{ x: 0 }}
                   exit={{ x: '100%' }}
-                  transition={{ type: "tween", duration: 0.3 }}
+                  transition={{ type: "tween", duration: 0}} //dont change this duration
                   className="fixed top-0 right-0 h-screen w-64 bg-white dark:bg-gray-900 z-[110]"
                   style={{ height: '100dvh' }}
                 >
-                  {/* Close button */}
-                  <button 
-                    className="absolute top-4 right-4 text-gray-700 dark:text-gray-200 hover:text-emerald-600 dark:hover:text-emerald-400"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                  >
-                    <X size={24} />
-                  </button>
-
                   <div className="pt-[60px] flex flex-col h-full">
                     <div className="flex-1 overflow-y-auto px-4 py-4">
                       {menuItems.map((item, index) => (
@@ -140,7 +104,7 @@ const Navigation = () => {
                           initial={{ opacity: 0, y: 20 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: 20 }}
-                          transition={{ delay: index * 0.1 }}
+                          transition={{ delay: index * 0.05 }}
                         >
                           <Link
                             href={item.href}
