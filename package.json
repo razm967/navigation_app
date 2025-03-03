@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
-    "@next/swc-win32-x64-msvc": "^15.2.0",
     "@radix-ui/react-accordion": "^1.2.2",
     "@radix-ui/react-alert-dialog": "^1.1.4",
     "@radix-ui/react-aspect-ratio": "^1.1.1",
@@ -55,7 +54,7 @@
     "input-otp": "1.4.1",
     "lucide-react": "^0.309.0",
     "mapbox-gl": "^2.15.0",
-    "next": "14.0.4",
+    "next": "^15.2.0",
     "next-themes": "^0.4.4",
     "react": "^18",
     "react-datepicker": "^8.1.0",
@@ -73,6 +72,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@swc/core": "^1.11.5",
     "@types/js-cookie": "^3.0.6",
     "@types/mapbox-gl": "^2.7.19",
     "@types/node": "^20",
